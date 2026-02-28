@@ -1,13 +1,12 @@
 import os
 
-# Configurar LangSmith ANTES de qualquer import LangChain
-os.environ["LANGCHAIN_TRACING_V2"] = "true"
-os.environ["LANGCHAIN_API_KEY"] = "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"
-os.environ["LANGCHAIN_PROJECT"] = "agentes-python-prod"
+os.environ["LANGCHAIN_TRACING_V2"] = os.getenv("LANGCHAIN_TRACING_V2", "true")
+os.environ["LANGCHAIN_API_KEY"] = os.getenv("LANGCHAIN_API_KEY", "")
+os.environ["LANGCHAIN_PROJECT"] = os.getenv("LANGCHAIN_PROJECT", "agentes-python-prod")
 
 from fastapi import FastAPI
-from loguru import logger
 from app.api.webhook import router
+from loguru import logger
 
 app = FastAPI(
     title="Agente Imobiliário IA",
@@ -29,4 +28,4 @@ async def health():
     }
 
 
-logger.info("🏠 Agente Imobiliário IA iniciado com sucesso.")
+logger.info("Agente Imobiliário IA iniciado.")
