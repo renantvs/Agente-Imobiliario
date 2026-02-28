@@ -1,0 +1,30 @@
+version: '3.8'
+
+# Apenas para testes locais no Windows.
+# Em produção, o Dokploy gerencia todos os containers.
+
+services:
+  imob-agent:
+    build: .
+    ports:
+      - "8000:8000"
+    env_file: .env
+    depends_on:
+      - redis-local
+    restart: unless-stopped
+
+  imob-worker:
+    build: .
+    command: >
+      python -m rq worker imob_agent
+      --url redis://default:cavaL02026@agente-imobilirio-redisdbai-2bfsnl:6379
+    env_file: .env
+    depends_on:
+      - redis-local
+    restart: unless-stopped
+
+  redis-local:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
