@@ -21,7 +21,9 @@ def send_message(phone_jid: str, text: str) -> bool:
     }
     payload = {
         "number": phone_jid,
-        "text": text,
+        "textMessage": {
+            "text": text,
+        },
         "options": {
             "delay": 1200,
             "presence": "composing",
