@@ -21,13 +21,7 @@ def send_message(phone_jid: str, text: str) -> bool:
     }
     payload = {
         "number": phone_jid,
-        "textMessage": {
-            "text": text,
-        },
-        "options": {
-            "delay": 1200,
-            "presence": "composing",
-        },
+        "text": text,
     }
 
     for attempt in range(1, 3):
