@@ -49,11 +49,14 @@ def enqueue_message(msg: IncomingMessage) -> None:
                 pass  # Job já executado ou expirado — ignorar
 
         # Agendar novo job com delay anti-flood
+        logger.info(f"Criando job na fila imob_agent | {msg.phone}")
         new_job = queue.enqueue_in(
             timedelta(seconds=settings.MESSAGE_BUFFER_SECONDS),
             process_buffered_message,
             phone=msg.phone,
+            phone_jid=msg.phone_jid,
         )
+        logger.info(f"Job criado | id={new_job.id} | fila=imob_agent | {msg.phone}")
         redis_client.setex(job_key, 30, new_job.id)
 
         logger.info(
@@ -65,11 +68,12 @@ def enqueue_message(msg: IncomingMessage) -> None:
         logger.error(f"enqueue_message error | phone={msg.phone} | {e}")
 
 
-def process_buffered_message(phone: str) -> None:
+def process_buffered_message(phone: str, phone_jid: str = "") -> None:
     """
     Executado pelo worker RQ após o período de buffer.
     Concatena as mensagens acumuladas e invoca o agente LangGraph.
     """
+    logger.info(f"Worker processando mensagem | phone={phone}")
     buffer_key: str = f"buffer:{phone}"
 
     try:
