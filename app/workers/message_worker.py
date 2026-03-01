@@ -1,105 +1,109 @@
 import json
-from datetime import timedelta
-from typing import Optional
+import threading
 
 from loguru import logger
-from rq import Queue
-from rq.job import Job
+from redis import Redis
 
-from app.core.redis_client import redis_client
 from app.core.config import settings
 from app.models.schemas import IncomingMessage
 
-queue: Queue = Queue("imob_agent", connection=redis_client)
+redis_client = Redis.from_url(settings.REDIS_URL, decode_responses=True)
+
+# Dicionário para controlar timers ativos por número
+_timers: dict[str, threading.Timer] = {}
+_timers_lock = threading.Lock()
 
 
 def enqueue_message(msg: IncomingMessage) -> None:
     """
-    Acumula mensagens do mesmo número por MESSAGE_BUFFER_SECONDS segundos.
-    Cancela job anterior se nova mensagem chegar antes do timer.
-    Agenda processamento unificado pelo worker.
+    Acumula mensagens do mesmo número por MESSAGE_BUFFER_SECONDS segundos usando
+    threading.Timer — sem dependência de RQ Scheduler externo.
+    Cancela e recria o timer a cada nova mensagem recebida (anti-flood).
     """
-    buffer_key: str = f"buffer:{msg.phone}"
-    job_key: str = f"job:{msg.phone}"
-    buffer_ttl: int = settings.MESSAGE_BUFFER_SECONDS + 2
+    buffer_key = f"buffer:{msg.phone}"
 
-    try:
-        # Carregar ou criar buffer
-        existing_raw: Optional[str] = redis_client.get(buffer_key)
-        if existing_raw:
-            data: dict = json.loads(existing_raw)
-            data["messages"].append(msg.message)
-        else:
-            data = {
-                "phone": msg.phone,
-                "phone_jid": msg.phone_jid,
-                "name": msg.name or "",
-                "messages": [msg.message],
-            }
+    # Carregar buffer existente ou criar novo
+    existing = redis_client.get(buffer_key)
+    if existing:
+        data = json.loads(existing)
+        data["messages"].append(msg.message)
+    else:
+        data = {
+            "phone": msg.phone,
+            "phone_jid": msg.phone_jid,
+            "name": msg.name or "",
+            "messages": [msg.message],
+        }
 
-        redis_client.setex(buffer_key, buffer_ttl, json.dumps(data))
+    # Salvar buffer atualizado com TTL de segurança
+    redis_client.setex(
+        buffer_key,
+        settings.MESSAGE_BUFFER_SECONDS + 5,
+        json.dumps(data),
+    )
 
-        # Cancelar job anterior se existir
-        existing_job_id: Optional[str] = redis_client.get(job_key)
-        if existing_job_id:
-            try:
-                old_job = Job.fetch(existing_job_id, connection=redis_client)
-                old_job.cancel()
-            except Exception:
-                pass  # Job já executado ou expirado — ignorar
+    # Cancelar timer anterior e criar novo
+    with _timers_lock:
+        if msg.phone in _timers:
+            _timers[msg.phone].cancel()
+            logger.info(f"Timer anterior cancelado | {msg.phone}")
 
-        # Agendar novo job com delay anti-flood
-        logger.info(f"Criando job na fila imob_agent | {msg.phone}")
-        new_job = queue.enqueue_in(
-            timedelta(seconds=settings.MESSAGE_BUFFER_SECONDS),
+        timer = threading.Timer(
+            settings.MESSAGE_BUFFER_SECONDS,
             process_buffered_message,
-            phone=msg.phone,
-            phone_jid=msg.phone_jid,
+            args=[msg.phone],
         )
-        logger.info(f"Job criado | id={new_job.id} | fila=imob_agent | {msg.phone}")
-        redis_client.setex(job_key, 30, new_job.id)
+        timer.daemon = True
+        timer.start()
+        _timers[msg.phone] = timer
 
-        logger.info(
-            f"Mensagem enfileirada | {msg.phone} | "
-            f"buffer acumulado: {len(data['messages'])} msg(s)"
-        )
-
-    except Exception as e:
-        logger.error(f"enqueue_message error | phone={msg.phone} | {e}")
+    logger.info(
+        f"Mensagem enfileirada | {msg.phone} | "
+        f"buffer acumulado: {len(data['messages'])} msg(s)"
+    )
 
 
-def process_buffered_message(phone: str, phone_jid: str = "") -> None:
+def process_buffered_message(phone: str) -> None:
     """
-    Executado pelo worker RQ após o período de buffer.
+    Chamado pelo threading.Timer após o período de buffer.
     Concatena as mensagens acumuladas e invoca o agente LangGraph.
     """
     logger.info(f"Worker processando mensagem | phone={phone}")
-    buffer_key: str = f"buffer:{phone}"
+    buffer_key = f"buffer:{phone}"
+
+    # Buscar e deletar buffer atomicamente
+    raw = redis_client.get(buffer_key)
+    if not raw:
+        logger.warning(f"Buffer vazio ou expirado | {phone}")
+        return
+
+    redis_client.delete(buffer_key)
+
+    # Remover timer do dicionário
+    with _timers_lock:
+        _timers.pop(phone, None)
+
+    data = json.loads(raw)
+    messages: list = data.get("messages", [])
+    if not messages:
+        return
+
+    full_message = " | ".join(messages)
+    phone_jid: str = data.get("phone_jid", "")
+
+    logger.info(
+        f"Processando {len(messages)} mensagem(ns) acumulada(s) | "
+        f"phone={phone} | '{full_message[:50]}'"
+    )
 
     try:
-        raw: Optional[str] = redis_client.get(buffer_key)
-        if not raw:
-            logger.warning(f"Buffer vazio ou expirado | phone={phone}")
-            return
-
-        redis_client.delete(buffer_key)
-        data: dict = json.loads(raw)
-        messages: list = data.get("messages", [])
-        name: str = data.get("name", "")
-
-        if not messages:
-            return
-
-        full_message: str = " | ".join(messages)
-        phone_jid: str = data.get("phone_jid", "")
-        logger.info(
-            f"Processando {len(messages)} mensagem(ns) acumulada(s) | phone={phone}"
-        )
-
-        # Import local para evitar import circular no módulo de workers
         from app.agents.graph import run_agent
 
-        run_agent(phone=phone, phone_jid=phone_jid, message=full_message, name=name)
-
+        run_agent(
+            phone=data["phone"],
+            phone_jid=phone_jid,
+            message=full_message,
+            name=data.get("name", ""),
+        )
     except Exception as e:
-        logger.error(f"process_buffered_message error | phone={phone} | {e}")
+        logger.error(f"Erro ao processar mensagem | phone={phone} | {e}")
