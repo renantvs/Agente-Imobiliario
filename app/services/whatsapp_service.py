@@ -4,10 +4,11 @@ from loguru import logger
 from app.core.config import settings
 
 
-def send_message(phone: str, text: str) -> bool:
+def send_message(phone_jid: str, text: str) -> bool:
     """
     Envia mensagem de texto via Evolution API.
     Faz até 2 tentativas em caso de falha.
+    phone_jid deve conter o JID completo (ex: 5521920130578@s.whatsapp.net).
     """
     url = (
         f"{settings.EVOLUTION_API_URL}/message/sendText"
@@ -17,26 +18,26 @@ def send_message(phone: str, text: str) -> bool:
         "apikey": settings.EVOLUTION_API_KEY,
         "Content-Type": "application/json",
     }
-    payload = {"number": phone, "text": text}
+    payload = {"number": phone_jid, "text": text}
 
     for attempt in range(1, 3):
         try:
             with httpx.Client(timeout=10) as client:
                 response = client.post(url, headers=headers, json=payload)
                 response.raise_for_status()
-                logger.info(f"Mensagem enviada | phone={phone} | tentativa={attempt}")
+                logger.info(f"Mensagem enviada | phone_jid={phone_jid} | tentativa={attempt}")
                 return True
         except httpx.HTTPStatusError as e:
             logger.warning(
-                f"HTTP error ao enviar mensagem | phone={phone} "
+                f"HTTP error ao enviar mensagem | phone_jid={phone_jid} "
                 f"| status={e.response.status_code} | tentativa={attempt}"
             )
         except Exception as e:
             logger.warning(
-                f"Erro ao enviar mensagem | phone={phone} | tentativa={attempt} | {e}"
+                f"Erro ao enviar mensagem | phone_jid={phone_jid} | tentativa={attempt} | {e}"
             )
 
-    logger.error(f"Falha definitiva ao enviar mensagem | phone={phone}")
+    logger.error(f"Falha definitiva ao enviar mensagem | phone_jid={phone_jid}")
     return False
 
 

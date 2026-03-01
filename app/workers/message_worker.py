@@ -32,6 +32,7 @@ def enqueue_message(msg: IncomingMessage) -> None:
         else:
             data = {
                 "phone": msg.phone,
+                "phone_jid": msg.phone_jid,
                 "name": msg.name or "",
                 "messages": [msg.message],
             }
@@ -86,6 +87,7 @@ def process_buffered_message(phone: str) -> None:
             return
 
         full_message: str = " | ".join(messages)
+        phone_jid: str = data.get("phone_jid", "")
         logger.info(
             f"Processando {len(messages)} mensagem(ns) acumulada(s) | phone={phone}"
         )
@@ -93,7 +95,7 @@ def process_buffered_message(phone: str) -> None:
         # Import local para evitar import circular no módulo de workers
         from app.agents.graph import run_agent
 
-        run_agent(phone=phone, message=full_message, name=name)
+        run_agent(phone=phone, phone_jid=phone_jid, message=full_message, name=name)
 
     except Exception as e:
         logger.error(f"process_buffered_message error | phone={phone} | {e}")

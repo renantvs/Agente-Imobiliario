@@ -22,14 +22,21 @@ def _extract_message_from_body(body: dict):
     if key.get("fromMe") is True:
         return None
 
-    remote_jid: str = key.get("remoteJid", "")
+    raw_jid: str = key.get("remoteJid", "")
+    alt_jid: str = key.get("remoteJidAlt", "")
 
     # Ignorar mensagens de grupos
-    if remote_jid.endswith("@g.us"):
+    if raw_jid.endswith("@g.us"):
         return None
 
-    # Normalizar número de telefone
-    phone = remote_jid.replace("@s.whatsapp.net", "")
+    # Resolver JID real: @lid é um ID interno do WhatsApp; o número verdadeiro fica em remoteJidAlt
+    if raw_jid.endswith("@lid"):
+        phone_jid = alt_jid
+    else:
+        phone_jid = raw_jid
+
+    # Extrair apenas dígitos para uso em Redis/banco/logs
+    phone = "".join(filter(str.isdigit, phone_jid.split("@")[0]))
     if not phone:
         return None
 
@@ -43,7 +50,7 @@ def _extract_message_from_body(body: dict):
 
     name: str = data.get("pushName", "")
 
-    return IncomingMessage(phone=phone, message=text, name=name)
+    return IncomingMessage(phone=phone, phone_jid=phone_jid, message=text, name=name)
 
 
 @router.post("/webhook/agente-imobiliaria")

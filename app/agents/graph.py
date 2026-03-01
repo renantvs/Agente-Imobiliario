@@ -53,7 +53,7 @@ def _build_graph() -> StateGraph:
     return graph.compile()
 
 
-def run_agent(phone: str, message: str, name: str = "") -> None:
+def run_agent(phone: str, message: str, name: str = "", phone_jid: str = "") -> None:
     """
     Ponto de entrada principal do agente.
     Carrega histórico, executa o grafo LangGraph e persiste o resultado.
@@ -63,6 +63,7 @@ def run_agent(phone: str, message: str, name: str = "") -> None:
 
         initial_state: AgentState = {
             "phone": phone,
+            "phone_jid": phone_jid,
             "message": message,
             "name": name,
             "intent": None,
@@ -85,14 +86,14 @@ def run_agent(phone: str, message: str, name: str = "") -> None:
         memory_service.persist_conversation(phone, message, response, intent)
 
         # Enviar resposta ao cliente via WhatsApp
-        whatsapp_service.send_message(phone, response)
+        whatsapp_service.send_message(phone_jid, response)
         logger.info(f"Ciclo do agente concluído | phone={phone} | intent={intent}")
 
     except Exception as e:
         logger.critical(f"run_agent error CRÍTICO | phone={phone} | {e}")
         try:
             whatsapp_service.send_message(
-                phone,
+                phone_jid,
                 "Desculpe, tive um problema técnico. Tente novamente em instantes! 😊",
             )
         except Exception:

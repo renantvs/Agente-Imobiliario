@@ -16,6 +16,7 @@ class Intent(str, Enum):
 
 class IncomingMessage(BaseModel):
     phone: str
+    phone_jid: str
     message: str
     message_id: Optional[str] = None
     name: Optional[str] = None
@@ -23,6 +24,7 @@ class IncomingMessage(BaseModel):
 
 class AgentState(TypedDict):
     phone: str
+    phone_jid: str
     message: str
     name: str
     intent: Optional[str]
