@@ -1,4 +1,5 @@
 from typing import Optional
+import json
 import httpx
 from loguru import logger
 from app.core.config import settings
@@ -18,12 +19,19 @@ def send_message(phone_jid: str, text: str) -> bool:
         "apikey": settings.EVOLUTION_API_KEY,
         "Content-Type": "application/json",
     }
-    payload = {"number": phone_jid, "text": text}
+    payload = {
+        "number": phone_jid,
+        "text": text,
+        "options": {
+            "delay": 1200,
+            "presence": "composing",
+        },
+    }
 
     for attempt in range(1, 3):
         try:
             with httpx.Client(timeout=10) as client:
-                response = client.post(url, headers=headers, json=payload)
+                response = client.post(url, headers=headers, content=json.dumps(payload))
                 if response.status_code in (200, 201):
                     logger.info(f"Mensagem enviada | phone_jid={phone_jid} | tentativa={attempt}")
                     return True
