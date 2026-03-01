@@ -24,14 +24,14 @@ def send_message(phone_jid: str, text: str) -> bool:
         try:
             with httpx.Client(timeout=10) as client:
                 response = client.post(url, headers=headers, json=payload)
-                response.raise_for_status()
-                logger.info(f"Mensagem enviada | phone_jid={phone_jid} | tentativa={attempt}")
-                return True
-        except httpx.HTTPStatusError as e:
-            logger.warning(
-                f"HTTP error ao enviar mensagem | phone_jid={phone_jid} "
-                f"| status={e.response.status_code} | tentativa={attempt}"
-            )
+                if response.status_code in (200, 201):
+                    logger.info(f"Mensagem enviada | phone_jid={phone_jid} | tentativa={attempt}")
+                    return True
+                else:
+                    logger.error(
+                        f"Evolution API erro | status={response.status_code} "
+                        f"| body={response.text} | url={url} | number={phone_jid}"
+                    )
         except Exception as e:
             logger.warning(
                 f"Erro ao enviar mensagem | phone_jid={phone_jid} | tentativa={attempt} | {e}"
