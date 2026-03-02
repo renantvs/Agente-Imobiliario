@@ -1,72 +1,77 @@
 from fastapi import APIRouter, Request, HTTPException
 from loguru import logger
+
 from app.workers.message_worker import enqueue_message
-from app.models.schemas import IncomingMessage
+from app.models.context import MessageContext
 
 router = APIRouter()
 
 
-def _extract_message_from_body(body: dict):
+# ---------------------------------------------------------------------------
+# ZONA 1 — Entrada e normalização
+# Responsabilidade exclusiva: extrair dados do payload Evolution API, montar
+# o MessageContext e delegar para o worker. Zero lógica de negócio aqui.
+# ---------------------------------------------------------------------------
+
+
+def _build_context(body: dict) -> MessageContext | None:
     """
-    Extrai e valida os campos relevantes do webhook da Evolution API.
-    Retorna IncomingMessage ou None se a mensagem deve ser ignorada.
+    Extrai e valida os campos relevantes do webhook Evolution API.
+    Retorna MessageContext ou None se a mensagem deve ser ignorada.
     """
-    # Ignorar eventos que não sejam novas mensagens
     if body.get("event") != "messages.upsert":
         return None
 
     data = body.get("data", {})
     key = data.get("key", {})
 
-    # Ignorar mensagens enviadas pelo próprio bot
+    # Ignorar mensagens enviadas pelo bot
     if key.get("fromMe") is True:
         return None
 
     raw_jid: str = key.get("remoteJid", "")
     alt_jid: str = key.get("remoteJidAlt", "")
 
-    # Ignorar mensagens de grupos
+    # Ignorar grupos
     if raw_jid.endswith("@g.us"):
         return None
 
-    # Resolver JID real: @lid é um ID interno do WhatsApp; o número verdadeiro fica em remoteJidAlt
-    if raw_jid.endswith("@lid"):
-        phone_jid = alt_jid
-    else:
-        phone_jid = raw_jid
+    # Resolver JID real (@lid = ID interno; número real está em remoteJidAlt)
+    phone_jid = alt_jid if raw_jid.endswith("@lid") else raw_jid
 
-    # Extrair apenas dígitos para uso em Redis/banco/logs
+    # Apenas dígitos → chave Redis / banco / logs
     phone = "".join(filter(str.isdigit, phone_jid.split("@")[0]))
     if not phone:
         return None
 
-    # Extrair texto (mensagem simples ou texto extendido)
+    # Extrair texto (conversação simples ou extendida)
     message_data = data.get("message", {})
-    text: str = message_data.get("conversation") or (
+    content: str = message_data.get("conversation") or (
         message_data.get("extendedTextMessage", {}).get("text", "")
     )
-    if not text:
+    if not content:
         return None
 
-    name: str = data.get("pushName", "")
-
-    return IncomingMessage(phone=phone, phone_jid=phone_jid, message=text, name=name)
+    return MessageContext(
+        phone=phone,
+        phone_jid=phone_jid,
+        name=data.get("pushName", ""),
+        content=content,
+        message_id=key.get("id", ""),
+    )
 
 
 @router.post("/webhook/agente-imobiliaria")
 async def webhook_agente(request: Request):
-    """Endpoint principal do webhook (Evolution API configurado no Dokploy)."""
+    """Endpoint principal do webhook (Evolution API)."""
     try:
         body = await request.json()
-        msg = _extract_message_from_body(body)
-
-        if msg is None:
+        ctx = _build_context(body)
+        if ctx is None:
             return {"status": "ignored"}
-
-        logger.info(f"Webhook recebido | phone={msg.phone} | msg={msg.message[:50]}")
-        enqueue_message(msg)
+        logger.info(f"Webhook recebido | phone={ctx.phone} | msg={ctx.content[:50]}")
+        enqueue_message(ctx)
         return {"status": "queued"}
-
     except Exception as e:
         logger.error(f"webhook_agente error: {e}")
         raise HTTPException(status_code=500, detail="Erro interno no webhook")
@@ -74,18 +79,15 @@ async def webhook_agente(request: Request):
 
 @router.post("/webhook/evolution")
 async def webhook_evolution(request: Request):
-    """Endpoint alternativo para compatibilidade com Evolution API v2."""
+    """Endpoint alternativo — compatibilidade com Evolution API v2."""
     try:
         body = await request.json()
-        msg = _extract_message_from_body(body)
-
-        if msg is None:
+        ctx = _build_context(body)
+        if ctx is None:
             return {"status": "ignored"}
-
-        logger.info(f"Webhook evolution | phone={msg.phone} | msg={msg.message[:50]}")
-        enqueue_message(msg)
+        logger.info(f"Webhook evolution | phone={ctx.phone} | msg={ctx.content[:50]}")
+        enqueue_message(ctx)
         return {"status": "queued"}
-
     except Exception as e:
         logger.error(f"webhook_evolution error: {e}")
         raise HTTPException(status_code=500, detail="Erro interno no webhook")

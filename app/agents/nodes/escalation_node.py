@@ -1,3 +1,10 @@
+"""
+ZONA 5 — Agente de Escalação para Atendimento Humano
+
+Responsabilidade: detectar pedido de humano, notificar corretor e responder ao cliente.
+Mantém lógica existente com linguagem humanizada.
+"""
+
 from loguru import logger
 from app.services import escalation_service
 from app.models.schemas import Intent
@@ -15,11 +22,11 @@ ESCALATION_TRIGGERS = [
 
 def check_escalation(state: dict) -> dict:
     """
-    Nó LangGraph: detecta se a mensagem exige escalação para humano.
+    Zona 5 — Detecta se a mensagem exige escalação para humano.
     Verifica triggers no texto e a intenção classificada.
     """
     message_lower = state["message"].lower()
-    intent_is_escalation = state.get("intent") == Intent.escalation.value
+    intent_is_escalation = state.get("intent") == Intent.atendimento_humano.value
     trigger_found = any(trigger in message_lower for trigger in ESCALATION_TRIGGERS)
 
     if intent_is_escalation or trigger_found:
@@ -36,7 +43,7 @@ def check_escalation(state: dict) -> dict:
 
 def execute_escalation(state: dict) -> dict:
     """
-    Nó LangGraph: executa a escalação — notifica humano e define resposta ao cliente.
+    Zona 5 — Executa a escalação: notifica corretor humano e define resposta ao cliente.
     """
     try:
         escalation_service.trigger_escalation(
@@ -47,7 +54,10 @@ def execute_escalation(state: dict) -> dict:
     except Exception as e:
         logger.error(f"execute_escalation error | phone={state['phone']} | {e}")
 
+    name = state.get("name", "")
+    name_txt = f", {name.split()[0]}" if name else ""
     state["response"] = (
-        "Entendido! Vou te conectar com um de nossos corretores agora. Um momento! 🏠"
+        f"Claro{name_txt}! Vou chamar um dos nossos corretores agora. 🙏 "
+        "Em breve alguém da equipe vai entrar em contato com você. Obrigada pela paciência!"
     )
     return state
