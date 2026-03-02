@@ -25,7 +25,6 @@ from app.agents.nodes.qualification_agent import qualification_agent
 from app.agents.nodes.documentation_agent import documentation_agent
 from app.agents.nodes.escalation_node import check_escalation, execute_escalation
 from app.agents.nodes.unknown_agent import unknown_agent
-from app.agents.nodes.rag_node import search_rag
 from app.services import memory_service, whatsapp_service
 from app.models.schemas import AgentState, Intent
 from app.core.redis_client import redis_client
@@ -123,7 +122,6 @@ def _build_graph() -> StateGraph:
     graph.add_node("unknown",           unknown_agent)
 
     # RAG (desabilitado — mantido no grafo caso seja reativado)
-    graph.add_node("rag", search_rag)
 
     # Zona 6 — Finalização
     graph.add_node("finalize", finalize)
@@ -154,7 +152,7 @@ def _build_graph() -> StateGraph:
 
     # Todos os agentes convergem para finalize (Zona 6)
     for node in ("greeting", "scheduling", "qualification",
-                 "documentation", "escalate", "unknown", "rag"):
+                 "documentation", "escalate", "unknown"):
         graph.add_edge(node, "finalize")
 
     graph.add_edge("finalize", END)
