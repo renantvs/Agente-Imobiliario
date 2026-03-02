@@ -29,7 +29,7 @@ _SYSTEM_PROMPT = (
     "  cumprimento      → oi, olá, bom dia, tudo bem, boa tarde, início de conversa\n"
     "  indefinido       → não se enquadra em nenhuma das anteriores\n\n"
     "Responda APENAS com JSON válido neste formato, sem markdown:\n"
-    '{"intencao": "<valor>", "confianca": "<alta|media|baixa>", "entidades": {}}'
+    '{{"intencao": "<valor>", "confianca": "<alta|media|baixa>", "entidades": {{}}}}'
 )
 
 _prompt = ChatPromptTemplate.from_messages([
